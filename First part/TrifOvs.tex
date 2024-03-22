@@ -1,0 +1,94 @@
+\documentclass[11pt,a4paper]
+\usepackage[utf8]{inputenc}
+\usepackage[czech]{babel}
+\usepackage{times}
+\usepackage{graphicx}
+\usepackage[a4paper,top=30mm,left=20mm,textwidth=17cm,textheight=24cm]{geometry}
+\usepackage{hyperref}
+\usepackage{enumitem}
+\usepackage{pdflscape}
+\usepackage{indentfirst}
+\usepackage{verbatim}
+\usepackage{fancyvrb}
+\usepackage{svg}
+\usepackage{biblatex}
+\usepackage{u8tex}
+\usepackage{tabto}
+\usepackage{rotating}
+\usepackage{amsmath}
+\usepackage[utf8]
+\usepackage{multicol}
+\usepackage[T1]{fontenc}\setlength\columnsep{2em}
+\setlength\columnsep{2em}
+
+\begin{document}
+    \begin{titlepage}
+        \begin{center}
+            \includegraphics[width=1\linewidth]{fit_logo} \\
+            \vspace{\stretch{0.382}}
+            \Huge{Dokumentace projektu IDS} \\
+            \Large{Název projektu: Manažerský kalendář } \\
+            \LARGE{1.~část projektu} \\
+            \Large{Tým: TrifOvs } \\
+            \vspace{\stretch{0.618}}
+        \end{center}
+        \hfill
+        \begin{center}
+        \LARGE
+            \begin{tabular}{l  l  l}
+                Dmytro Trifonov & xtrifo00 & \;  \\
+                Yelyzaveta Ovsiannikova & xovsia00 & \;
+            \end{tabular}
+        \end{center}
+    \end{titlepage}
+    \tableofcontents
+
+    \newpage
+
+    \section{Zadání}
+    \subsection*{Manažerský kalendář}
+    Ředitel vaší firmy se na vás obrátil s požadavkem na vývoj aplikace, kterou charakterizoval takto:
+    Systém bude používat vedení firmy, tj. ředitel a vedoucí oddělení (manažeři) a sekretářky na obou úrovních. Ředitel a manažeři, případně jejich sekretářky budou vkládat informace o plánovaných akcích. Ředitel má možnost vidět kromě svého kalendáře i kalendáře všech manažerů, ti vidí pouze svoje, z ředitelova dostávají pouze informaci o termínech, kdy nebude ředitel přítomen. Ředitel má možnost manažerům sám některé akce plánovat. Systém musí v takovém případě zajistit odeslání zprávy příslušnému manažerovi. Systém také musí poskytovat informace o volných časech vybraných či všech manažerů, aby ředitel mohl plánovat některé společné akce.
+
+    \section{Popis datového modelu}
+    \subsection{ER diagram}
+    \textbf{ER diagram obsahuje tyto entity:}\\
+    \textbf{Uživatel:} Tato entita představuje každého uživatele systému, včetně ředitelů a manažerů a jejich sekretářek.\\
+    \textbf{Sekretářky:} mají v rámci tohoto systému stejná práva jako jejich nadřízení, mají také své vlastní účty a jsou plnohodnotnými uživateli, ale při každé akci se vygeneruje zprávu, aby bylo jasné, kdo akci provedl.\\
+    \textbf{Ředitel:} Ředitel může upravovat nejen svůj kalendář, ale také kalendáře všech manažerů (bude vygenerována zpráva), a díky atributu dostupnosti v entitě události může získat informace o dostupnosti manažerů v daném čase.\\
+    \textbf{Manažer:} Může upravovat pouze svůj vlastní kalendář a má také přístup k informacím o momentální nedostupnosti ředitele. Vypadá to jako stejný kalendář, ale všechny atributy kromě dostupnosti jsou nahrazeny standardní hodnotou(např. defaultní).\\
+    \textbf{Kalendář:} Každý kalendář je spojen s konkrétním uživatelem a oddělením. Umožňuje záznam plánovaných událostí.\\
+    \textbf{Událost:} Entita události obsahuje všechny důležité informace o plánovaných akcích a schůzkách v kalendářích.\\
+    \textbf{Zpráva:} Systém generuje zprávu jako zprávy o nově plánovaných akcích nebo o změnách v kalendáři, vyrobených osobami, které nejsou vlastníky.\\
+    Pozn.: V kontextu tohoto systému předpokládáme, že ředitel a manažer mohou mít několik sekretářek, které s nimi budou propojeny prostřednictvím ID oddělení.
+
+    Placeholder for ER diagram figure
+    \begin{figure}[h]
+    \centering
+    \includesvg[width=0.85\textwidth]{ER.svg}
+    \caption{ER diagram}
+    \end{figure}
+    \newpage
+
+    \subsection{Diagram případů užití}
+    \textbf{Diagram případů užití obsahuje následující funkce:}\\
+    \textbf{Přihlášení}: Umožňuje uživatelům vstoupit do systému s ověřením jejich údajů.\\
+    \textbf{Zobrazení událostí}: Uživatelé mohou prohlížet události ve svém kalendáři.\\
+    \textbf{Zobrazení událostí ostatních}: Umožňuje vidět události v kalendářích ostatních uživatelů dle rolí a oprávnění.\\
+    \textbf{Zjištění neprítomnosti ředitele}: Manažeři mohou zjistit, kdy ředitel nebude přítomen.\\
+    \textbf{Volný čas manažera}: Funkce pro zobrazení volných časových slotů v kalendáři manažera.\\
+    \textbf{Správa vlastních událostí (CRUD)}: Uživatelé mohou vytvářet, číst, upravovat a mazat události.\\
+    \textbf{Správa událostí jiných manažerů (CRUD)}: Ředitel může spravovat události manažerů.\\
+    \textbf{Zobrazení informací}: Zobrazuje informace spojené s vybranými funkcemi systému.\\
+    \textbf{Generování notifikací}: Pokud událost vytvoří sekretářka, systém vygeneruje notifikace.\\
+    Diagram také ukazuje, že některé případy užití ("zobrazení informací") jsou centrální pro zobrazení relevantních údajů a jsou podporovány dalšími akcemi.
+
+    Placeholder for Use Case diagram figure
+    \begin{figure}[h]
+    \centering
+    \includesvg[width=0.85\textwidth]{Use_case.svg}
+    \caption{Diagram případů užití}
+    \end{figure}
+    \newpage
+
+\end{document}
