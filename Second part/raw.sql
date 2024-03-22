@@ -164,15 +164,38 @@ DECLARE
     v_id_vlastnika NUMBER;
 BEGIN
     -- Find the owner of the calendar associated with the event
-    SELECT ID_Vlastnika INTO v_id_vlastnika FROM Kalendar WHERE ID = :NEW.Kalendar_ID; -- Assuming you have an Kalendar_ID in Udalost table
+    SELECT ID_Vlastnika INTO v_id_vlastnika FROM Kalendar WHERE ID = :NEW.Kalendar_ID;
 
     -- Check if the creator of the event is not the owner of the calendar
     IF :NEW.ID_Tvurce != v_id_vlastnika THEN
         -- Insert a new Zprava since the IDs do not match
-        INSERT INTO Zprava (ID, ID, Dalsi_informace)
+        INSERT INTO Zprava (ID, Udalost_ID, Dalsi_informace)
         VALUES (zprava_seq.NEXTVAL, :NEW.ID, 'Message related information');
     END IF;
 END;
+/
+
+CREATE OR REPLACE TRIGGER trg_create_zprava_and_event_calendar
+AFTER INSERT ON Udalost
+FOR EACH ROW
+DECLARE
+    v_id_vlastnika NUMBER;
+BEGIN
+    -- Find the owner of the calendar associated with the event
+    SELECT ID_Vlastnika INTO v_id_vlastnika FROM Kalendar WHERE ID = :NEW.Kalendar_ID; -- Assuming you have a Kalendar_ID in the Udalost table
+
+    -- Check if the creator of the event is not the owner of the calendar
+    IF :NEW.ID_Tvurce != v_id_vlastnika THEN
+        -- Insert a new Zprava since the IDs do not match
+        INSERT INTO Zprava (ID, Udalost_ID, Dalsi_informace)
+        VALUES (zprava_seq.NEXTVAL, :NEW.ID, 'Message related information');
+    END IF;
+
+    -- Insert into Události_v_kalendářích to associate the event with the calendar
+    INSERT INTO Události_v_kalendářích (Udalost_ID, Kalendar_ID)
+    VALUES (:NEW.ID, :NEW.Kalendar_ID);
+END;
+/
 
 
 -- Insert a new Uzivatel
@@ -195,23 +218,29 @@ VALUES (10);
 INSERT INTO Udalost (ID, Datum, Cas, Popis, Misto, Nazev, Vyrobny, Doba_trvani, Dostupnost, Kalendar_ID, ID_Tvurce)
 VALUES (1, TO_DATE('2022-05-15', 'YYYY-MM-DD'), '10:00', 'Meeting with clients', 'Conference Room', 'Client Meeting', 'Sales', 2, 'Public', 1, 9);
 
-
--- INSERT INTO Uzivatel (ID, Jmeno, Datum_narozeni, Email, Heslo, Oddeleni)
--- VALUES (1, 'John Doe', TO_DATE('1990-05-15', 'YYYY-MM-DD'), 'john.doe@example.com', 'password123', 'Sales');
---
--- -- Insert a new Manazer based on the Uzivatel ID
--- INSERT INTO Manazer (ID)
--- VALUES (1);
---
--- -- Insert a new Uzivatel
--- INSERT INTO Uzivatel (ID, Jmeno, Datum_narozeni, Email, Heslo, Oddeleni)
--- VALUES (2, 'Jane Smith', TO_DATE('1985-11-22', 'YYYY-MM-DD'), 'jane.smith@example.com', 'secret456', 'Marketing');
---
--- -- Insert a new Reditel based on the Uzivatel ID
--- INSERT INTO Reditel (ID)
--- VALUES (2);
-
 -- Insert a new Udalost
+INSERT INTO Udalost (ID, Datum, Cas, Popis, Misto, Nazev, Vyrobny, Doba_trvani, Dostupnost, Kalendar_ID, ID_Tvurce)
+VALUES (2, TO_DATE('2022-06-20', 'YYYY-MM-DD'), '14:00', 'Budget review meeting', 'Board Room', 'Budget Meeting', 'Finance', 1, 'Private', 2, 10);
 
--- INSERT INTO Udalost (ID, Datum, Cas, Popis, Misto, Nazev, Vyrobny, Doba_trvani, Dostupnost, Kalendar_ID, ID_Tvurce)
--- VALUES (1, TO_DATE('2022-05-15', 'YYYY-MM-DD'), '10:00', 'Meeting with clients', 'Conference Room', 'Client Meeting', 'Sales', 2, 'Public', 1, 1);
+-- Insert a new uzivatel Secretary for the Manager
+INSERT INTO Uzivatel (ID, Jmeno, Datum_narozeni, Email, Heslo, Oddeleni)
+VALUES (11, 'Alice Johnson', TO_DATE('1990-05-15', 'YYYY-MM-DD'), 'safdgdsha@gmail.com', 'passwosdgsdgrd123', 'Sales');
+
+-- Insert a new Secretary for the Manager based on the Uzivatel ID
+INSERT INTO Sekretarka_manazera (ID, Manazer_ID)
+VALUES (11, 9);
+
+-- Insert a new uzivatel Secretary for the Director
+INSERT INTO Uzivatel (ID, Jmeno, Datum_narozeni, Email, Heslo, Oddeleni)
+VALUES (12, 'Bob Brown', TO_DATE('1990-05-15', 'YYYY-MM-DD'), 'directorsec@gmail.com', 'secretarypassword', 'CEO');
+
+-- Insert a new Secretary for the Director based on the Uzivatel ID
+INSERT INTO Sekretarka_reditel (ID, Reditel_ID)
+VALUES (12, 10);
+
+-- Insert a new Udalost secretary
+INSERT INTO Udalost (ID, Datum, Cas, Popis, Misto, Nazev, Vyrobny, Doba_trvani, Dostupnost, Kalendar_ID, ID_Tvurce)
+VALUES (3, TO_DATE('2022-07-25', 'YYYY-MM-DD'), '09:00', 'Team building event', 'Outdoor Park', 'Team Building', 'HR', 3, 'Public', 2, 11);
+
+INSERT INTO Udalost (ID, Datum, Cas, Popis, Misto, Nazev, Vyrobny, Doba_trvani, Dostupnost, Kalendar_ID, ID_Tvurce)
+VALUES (4, TO_DATE('2022-07-26', 'YYYY-MM-DD'), '01:00', 'Team building ', 'Outdoor', 'Team ', 'Sale', 10, 'Public', 2, 11);
