@@ -674,3 +674,55 @@ VALUES (udalost_seq.currval, 3);
 INSERT INTO Události_v_kalendářích (Udalost_ID, Kalendar_ID)
 VALUES (udalost_seq.currval, 4);
 
+-- Query 1: Joining two tables to find all events created by a specific user
+-- This query shows how to link the Uzivatel and Udalost tables to find all events created by a specific user.
+SELECT U.Jmeno AS CreatorName, E.Nazev AS EventName, E.DATUM_CAS AS EventDateTime
+FROM Udalost E
+JOIN Uzivatel U ON E.ID_Tvurce = U.ID
+WHERE U.Jmeno = 'Director Name';
+
+-- Query 2: Joining two tables to list all messages received by a specific user
+-- This query demonstrates linking the Zprava and Uzivatel tables to list all messages received by a specific user.
+SELECT U.Jmeno AS ReceiverName, Z.ID AS MessageID
+FROM Zprava Z
+JOIN Uzivatel U ON Z.Resviver_ID = U.ID
+WHERE U.Jmeno = 'Manager One';
+
+-- Query 3: Joining three tables to display events in a manager's calendar along with event details and creator
+-- This query is a bit more complex, joining three tables to show detailed event information stored in a manager's calendar.
+SELECT U.Jmeno AS ManagerName, E.Nazev AS EventName, E.Popis AS Description, E.DATUM_CAS AS EventDateTime
+FROM Události_v_kalendářích UK
+JOIN Udalost E ON UK.Udalost_ID = E.ID
+JOIN Uzivatel U ON UK.Kalendar_ID = U.ID
+WHERE U.Oddeleni = 'Sales';
+
+-- Query 4: Using GROUP BY and aggregation to count the number of events by department
+-- This query groups events by the department of their creators and counts the number of events per department.
+SELECT U.Oddeleni AS Department, COUNT(*) AS EventCount
+FROM Udalost E
+JOIN Uzivatel U ON E.ID_Tvurce = U.ID
+GROUP BY U.Oddeleni;
+
+-- Query 5: Using GROUP BY and aggregation to calculate the average duration of events in each department
+-- This query calculates the average duration of events, grouped by the department of their creators.
+SELECT U.Oddeleni AS Department, AVG(E.Doba_trvani) AS AverageDuration
+FROM Udalost E
+JOIN Uzivatel U ON E.ID_Tvurce = U.ID
+GROUP BY U.Oddeleni;
+
+-- Query 6: Using EXISTS to find users who have created an event
+-- This query identifies users who have created at least one event.
+SELECT U.Jmeno AS UserName
+FROM Uzivatel U
+WHERE EXISTS (SELECT 1 FROM Udalost E WHERE E.ID_Tvurce = U.ID);
+
+-- Query 7: Using IN with a nested SELECT to find events attended by a specific department
+-- This query finds events that are attended by any user from a specific department.
+SELECT E.Nazev AS EventName, E.DATUM_CAS AS EventDateTime
+FROM Udalost E
+WHERE E.ID IN (SELECT UK.Udalost_ID
+               FROM Události_v_kalendářích UK
+               JOIN Kalendar K ON UK.Kalendar_ID = K.ID
+               JOIN Uzivatel U ON K.ID_Vlastnika = U.ID
+               WHERE U.Oddeleni = 'Marketing');
+
