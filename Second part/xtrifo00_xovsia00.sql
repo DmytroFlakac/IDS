@@ -1,3 +1,86 @@
+-- Drop triggers if they exist
+BEGIN
+   EXECUTE IMMEDIATE 'DROP TRIGGER trg_check_uzivatel_id_not_null';
+   EXECUTE IMMEDIATE 'DROP TRIGGER trg_check_udalost_id_not_null';
+   EXECUTE IMMEDIATE 'DROP TRIGGER trg_create_manager_calendar';
+   EXECUTE IMMEDIATE 'DROP TRIGGER trg_create_director_calendar';
+   EXECUTE IMMEDIATE 'DROP TRIGGER trg_ensure_single_ceo_director';
+   EXECUTE IMMEDIATE 'DROP TRIGGER trg_check_kalendar_count';
+   EXECUTE IMMEDIATE 'DROP TRIGGER trg_create_zprava_and_event_calendar';
+   EXECUTE IMMEDIATE 'DROP TRIGGER trg_prevent_manager_in_director';
+   EXECUTE IMMEDIATE 'DROP TRIGGER trg_check_manazer_sekretarka_dept';
+   EXECUTE IMMEDIATE 'DROP TRIGGER trg_check_reditel_sekretarka_dept';
+   EXECUTE IMMEDIATE 'DROP TRIGGER trg_check_event_overlap';
+EXCEPTION
+   WHEN OTHERS THEN
+      IF SQLCODE != -4080 THEN
+         RAISE;
+      END IF;
+END;
+/
+
+-- Drop tables if they exist
+BEGIN
+   EXECUTE IMMEDIATE 'DROP TABLE Zprava CASCADE CONSTRAINTS';
+   EXECUTE IMMEDIATE 'DROP TABLE Události_v_kalendářích CASCADE CONSTRAINTS';
+   EXECUTE IMMEDIATE 'DROP TABLE Kalendar CASCADE CONSTRAINTS';
+   EXECUTE IMMEDIATE 'DROP TABLE Sekretarka_reditel CASCADE CONSTRAINTS';
+   EXECUTE IMMEDIATE 'DROP TABLE Sekretarka_manazera CASCADE CONSTRAINTS';
+   EXECUTE IMMEDIATE 'DROP TABLE Reditel CASCADE CONSTRAINTS';
+   EXECUTE IMMEDIATE 'DROP TABLE Manazer CASCADE CONSTRAINTS';
+   EXECUTE IMMEDIATE 'DROP TABLE Udalost CASCADE CONSTRAINTS';
+   EXECUTE IMMEDIATE 'DROP TABLE Uzivatel CASCADE CONSTRAINTS';
+EXCEPTION
+   WHEN OTHERS THEN
+      IF SQLCODE != -942 THEN
+         RAISE;
+      END IF;
+END;
+/
+
+-- Drop sequences if they exist
+BEGIN
+   EXECUTE IMMEDIATE 'DROP SEQUENCE uzivatel_seq';
+   EXECUTE IMMEDIATE 'DROP SEQUENCE udalost_seq';
+   EXECUTE IMMEDIATE 'DROP SEQUENCE zprava_seq';
+   EXECUTE IMMEDIATE 'DROP SEQUENCE seq_kalendar';
+   EXECUTE IMMEDIATE 'DROP SEQUENCE udalosti_v_kalendari_seq';
+EXCEPTION
+   WHEN OTHERS THEN
+      IF SQLCODE != -2289 THEN
+         RAISE;
+      END IF;
+END;
+/
+
+-- Drop the view if it exists
+BEGIN
+   EXECUTE IMMEDIATE 'DROP VIEW DirectorEventsForManagers';
+EXCEPTION
+   WHEN OTHERS THEN
+      IF SQLCODE != -942 THEN -- ORA-00942: table or view does not exist
+         RAISE;
+      END IF;
+END;
+/
+
+-- Drop the materialized view if it exists
+BEGIN
+   EXECUTE IMMEDIATE 'DROP MATERIALIZED VIEW Log_View';
+EXCEPTION
+   WHEN OTHERS THEN
+      IF SQLCODE != -12003 THEN -- ORA-12003: materialized view "name" does not exist
+         RAISE;
+      END IF;
+END;
+/
+
+
+-- Now, proceed to re-create your sequences, tables, and triggers as shown in your initial script.
+
+
+
+
 CREATE SEQUENCE uzivatel_seq
 START WITH 1
 INCREMENT BY 1
@@ -421,9 +504,36 @@ FROM
 WHERE
     uz.Oddeleni = 'CEO';
 
+CREATE OR REPLACE PROCEDURE AddUser(p_name VARCHAR2, p_birthdate DATE, p_email VARCHAR2, p_password VARCHAR2, p_department VARCHAR2) AS
+  v_count INT;
+BEGIN
+  SELECT COUNT(*) INTO v_count FROM Uzivatel WHERE Email = p_email;
+  IF v_count > 0 THEN
+    RAISE_APPLICATION_ERROR(-20001, 'Email already exists.');
+  ELSE
+    INSERT INTO Uzivatel (Jmeno, Datum_narozeni, Email, Heslo, Oddeleni) VALUES (p_name, p_birthdate, p_email, p_password, p_department);
+  END IF;
+EXCEPTION
+  WHEN OTHERS THEN
+    DBMS_OUTPUT.PUT_LINE('Error: ' || SQLERRM);
+END;
+
+CREATE OR REPLACE PROCEDURE DeleteUser(p_id NUMBER) AS
+BEGIN
+  DELETE FROM Uzivatel WHERE ID = p_id;
+  IF SQL%ROWCOUNT = 0 THEN
+    RAISE_APPLICATION_ERROR(-20002, 'No user found with the specified ID.');
+  END IF;
+END;
+
 -- Insert Director User
-INSERT INTO Uzivatel (Jmeno, Datum_narozeni, Email, Heslo, Oddeleni)
-VALUES ('Director Name', TO_DATE('1970-01-01', 'YYYY-MM-DD'), 'director@example.com', 'dir123', 'CEO');
+BEGIN
+  AddUser('Director Name', TO_DATE('1970-01-01', 'YYYY-MM-DD'), 'director@example.com', 'dir123', 'CEO');
+EXCEPTION
+  WHEN OTHERS THEN
+    DBMS_OUTPUT.PUT_LINE('Failed to add user: ' || SQLERRM);
+END;
+
 
 -- Assuming the director's user ID is manually set to 1
 -- Insert Director Role
@@ -718,6 +828,7 @@ WHERE EXISTS (SELECT 1 FROM Udalost E WHERE E.ID_Tvurce = U.ID);
 
 -- Query 7: Using IN with a nested SELECT to find events attended by a specific department
 -- This query finds events that are attended by any user from a specific department.
+explain plan for
 SELECT E.Nazev AS EventName, E.DATUM_CAS AS EventDateTime
 FROM Udalost E
 WHERE E.ID IN (SELECT UK.Udalost_ID
@@ -725,4 +836,43 @@ WHERE E.ID IN (SELECT UK.Udalost_ID
                JOIN Kalendar K ON UK.Kalendar_ID = K.ID
                JOIN Uzivatel U ON K.ID_Vlastnika = U.ID
                WHERE U.Oddeleni = 'Marketing');
+
+SELECT * FROM table(DBMS_XPLAN.DISPLAY);
+
+
+CREATE INDEX idx_user_email ON Uzivatel(Email);
+EXPLAIN PLAN FOR
+SELECT * FROM Uzivatel WHERE Email = 'sec.one@example.com';
+
+SELECT * FROM TABLE(DBMS_XPLAN.DISPLAY);
+
+
+CREATE MATERIALIZED VIEW Log_View
+REFRESH COMPLETE
+START WITH SYSDATE
+NEXT SYSDATE + 1
+AS
+SELECT
+    u.Jmeno AS CreatorName,
+    e.ID AS EventID,
+    e.Nazev AS EventName,
+    e.DATUM_CAS AS EventDateTime
+FROM
+    Udalost e
+JOIN
+    Uzivatel u ON e.ID_Tvurce = u.ID;
+
+
+
+WITH ManagerData AS (
+  -- Select all users and check if they are listed as managers in the Manazer table
+  SELECT U.ID, U.Jmeno, U.Oddeleni,
+         CASE WHEN M.ID IS NOT NULL THEN 'Yes' ELSE 'No' END AS IsManager
+  FROM Uzivatel U
+  LEFT JOIN Manazer M ON U.ID = M.ID -- A left join to Manazer to see if the user is a manager
+)
+SELECT Jmeno, IsManager, Oddeleni
+FROM ManagerData;
+
+
 
