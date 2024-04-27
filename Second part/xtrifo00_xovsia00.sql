@@ -1,3 +1,4 @@
+---------------------------------------- Drop Database -------------------------------------------------------
 -- Drop triggers if they exist
 BEGIN
    EXECUTE IMMEDIATE 'DROP TRIGGER trg_check_uzivatel_id_not_null';
@@ -18,6 +19,7 @@ EXCEPTION
       END IF;
 END;
 /
+
 
 -- Drop tables if they exist
 BEGIN
@@ -55,7 +57,7 @@ END;
 
 -- Drop the view if it exists
 BEGIN
-   EXECUTE IMMEDIATE 'DROP VIEW DirectorEventsForManagers';
+   EXECUTE IMMEDIATE 'DROP MATERIALIZED VIEW DirectorEventsForManagers';
 EXCEPTION
    WHEN OTHERS THEN
       IF SQLCODE != -942 THEN -- ORA-00942: table or view does not exist
@@ -75,11 +77,23 @@ EXCEPTION
 END;
 /
 
+-- Drop the type if it already exists
+BEGIN
+    EXECUTE IMMEDIATE 'DROP TYPE ManagerNameType';
+EXCEPTION
+    WHEN OTHERS THEN
+        IF SQLCODE != -24370 THEN -- ORA-24370: Type does not exist
+            RAISE;
+        END IF;
+END;
+/
+
+-------------------------------------------- Create Database ---------------------------------------------------
+-- Now create the type
+CREATE TYPE ManagerNameType AS TABLE OF VARCHAR2(100);
+
 
 -- Now, proceed to re-create your sequences, tables, and triggers as shown in your initial script.
-
-
-
 
 CREATE SEQUENCE uzivatel_seq
 START WITH 1
@@ -180,6 +194,7 @@ CREATE TABLE Události_v_kalendářích (
       REFERENCES Kalendar(ID) ON DELETE CASCADE
 );
 
+-------------------------------------------- Create Triggers ---------------------------------------------------
 --Trigger to add id and check if the id is not null and if it already exists
 CREATE OR REPLACE TRIGGER trg_check_uzivatel_id_not_null
 BEFORE INSERT ON Uzivatel
@@ -490,20 +505,6 @@ END;
 /
 
 
--- View to display events of director for managers
-CREATE OR REPLACE VIEW DirectorEventsForManagers AS
-SELECT
-    e.ID AS EventID,
-    e.DATUM_CAS AS EventDateTime,
-    e.Dostupnost
-FROM
-    Udalost e
-    INNER JOIN Události_v_kalendářích uk ON e.ID = uk.Udalost_ID
-    INNER JOIN Kalendar k ON uk.Kalendar_ID = k.ID
-    INNER JOIN Uzivatel uz ON k.ID_Vlastnika = uz.ID
-WHERE
-    uz.Oddeleni = 'CEO';
-
 CREATE OR REPLACE PROCEDURE AddUser(p_name VARCHAR2, p_birthdate DATE, p_email VARCHAR2, p_password VARCHAR2, p_department VARCHAR2) AS
   v_count INT;
 BEGIN
@@ -518,6 +519,85 @@ EXCEPTION
     DBMS_OUTPUT.PUT_LINE('Error: ' || SQLERRM);
 END;
 
+CREATE OR REPLACE PROCEDURE AddManager(
+  p_name VARCHAR2,
+  p_birthdate DATE,
+  p_email VARCHAR2,
+  p_password VARCHAR2,
+  p_department VARCHAR2
+) AS
+BEGIN
+  -- First, add the user
+  AddUser(p_name, p_birthdate, p_email, p_password, p_department);
+
+  -- Then add the manager, assuming that the current ID is from uzivatel_seq's current value
+  INSERT INTO Manazer (ID)
+  VALUES (uzivatel_seq.currval);
+EXCEPTION
+  WHEN OTHERS THEN
+    DBMS_OUTPUT.PUT_LINE('Error in AddManager: ' || SQLERRM);
+END;
+
+CREATE OR REPLACE PROCEDURE AddDirector(
+  p_name VARCHAR2,
+  p_birthdate DATE,
+  p_email VARCHAR2,
+  p_password VARCHAR2,
+  p_department VARCHAR2 -- This should typically be 'CEO'
+) AS
+BEGIN
+  -- First, add the user
+  AddUser(p_name, p_birthdate, p_email, p_password, p_department);
+
+  -- Then add the director
+  INSERT INTO Reditel (ID)
+  VALUES (uzivatel_seq.currval);
+EXCEPTION
+  WHEN OTHERS THEN
+    DBMS_OUTPUT.PUT_LINE('Error in AddDirector: ' || SQLERRM);
+END;
+
+
+CREATE OR REPLACE PROCEDURE AddManagerSecretary(
+  p_name VARCHAR2,
+  p_birthdate DATE,
+  p_email VARCHAR2,
+  p_password VARCHAR2,
+  p_department VARCHAR2,
+  p_manager_id NUMBER
+) AS
+BEGIN
+  -- First, add the user
+  AddUser(p_name, p_birthdate, p_email, p_password, p_department);
+
+  -- Then add the manager's secretary
+  INSERT INTO Sekretarka_manazera (ID, Manazer_ID)
+  VALUES (uzivatel_seq.currval, p_manager_id);
+EXCEPTION
+  WHEN OTHERS THEN
+    DBMS_OUTPUT.PUT_LINE('Error in AddManagerSecretary: ' || SQLERRM);
+END;
+
+CREATE OR REPLACE PROCEDURE AddDirectorSecretary(
+  p_name VARCHAR2,
+  p_birthdate DATE,
+  p_email VARCHAR2,
+  p_password VARCHAR2,
+  p_department VARCHAR2, -- This should be 'CEO'
+  p_director_id NUMBER
+) AS
+BEGIN
+  -- First, add the user
+  AddUser(p_name, p_birthdate, p_email, p_password, p_department);
+
+  -- Then add the director's secretary
+  INSERT INTO Sekretarka_reditel (ID, Reditel_ID)
+  VALUES (uzivatel_seq.currval, p_director_id);
+EXCEPTION
+  WHEN OTHERS THEN
+    DBMS_OUTPUT.PUT_LINE('Error in AddDirectorSecretary: ' || SQLERRM);
+END;
+
 CREATE OR REPLACE PROCEDURE DeleteUser(p_id NUMBER) AS
 BEGIN
   DELETE FROM Uzivatel WHERE ID = p_id;
@@ -525,20 +605,49 @@ BEGIN
     RAISE_APPLICATION_ERROR(-20002, 'No user found with the specified ID.');
   END IF;
 END;
+/
 
+
+CREATE OR REPLACE FUNCTION GetAvailableManagers(start_time TIMESTAMP, end_time TIMESTAMP)
+    RETURN ManagerNameType PIPELINED
+IS
+    -- Variable to hold manager names
+    v_manager_name Uzivatel.Jmeno%TYPE;
+
+    -- Cursor to retrieve available managers
+    CURSOR c_available_managers IS
+        SELECT U.Jmeno AS ManagerName
+        FROM Uzivatel U
+        JOIN Manazer M ON U.ID = M.ID
+        LEFT JOIN (
+            SELECT UK.Kalendar_ID
+            FROM Události_v_kalendářích UK
+            JOIN Udalost E ON UK.Udalost_ID = E.ID
+            WHERE (E.DATUM_CAS BETWEEN start_time AND end_time
+            OR (E.DATUM_CAS + NUMTODSINTERVAL(E.Doba_trvani, 'HOUR') BETWEEN start_time AND end_time))
+        ) ConflictingEvents ON M.ID = ConflictingEvents.Kalendar_ID
+        WHERE ConflictingEvents.Kalendar_ID IS NULL;
+BEGIN
+    -- Loop through the cursor and pipe the manager names back to the caller
+    FOR r IN c_available_managers
+    LOOP
+        PIPE ROW(r.ManagerName);
+    END LOOP;
+    RETURN;
+EXCEPTION
+    WHEN OTHERS THEN
+        -- Handle exceptions
+        RAISE;
+END GetAvailableManagers;
+/
+-------------------------------------------- Insert Data ---------------------------------------------------
 -- Insert Director User
 BEGIN
-  AddUser('Director Name', TO_DATE('1970-01-01', 'YYYY-MM-DD'), 'director@example.com', 'dir123', 'CEO');
+  AddDirector('Director Name', TO_DATE('1970-01-01', 'YYYY-MM-DD'), 'director@example.com', 'dir123', 'CEO');
 EXCEPTION
   WHEN OTHERS THEN
-    DBMS_OUTPUT.PUT_LINE('Failed to add user: ' || SQLERRM);
+    DBMS_OUTPUT.PUT_LINE('Failed to add Director: ' || SQLERRM);
 END;
-
-
--- Assuming the director's user ID is manually set to 1
--- Insert Director Role
-INSERT INTO Reditel (ID)
-VALUES (1);
 
 -- Director creates an event
 INSERT INTO Udalost (DATUM_CAS, Popis, Misto, Nazev, Doba_trvani, Dostupnost, ID_Tvurce)
@@ -549,22 +658,27 @@ INSERT INTO Události_v_kalendářích (Udalost_ID, Kalendar_ID)
 VALUES (1, 1);
 
 -- Manager 1 and their event
-INSERT INTO Uzivatel (Jmeno, Datum_narozeni, Email, Heslo, Oddeleni)
-VALUES ('Manager One', TO_DATE('1980-02-01', 'YYYY-MM-DD'), 'manager.one@example.com', 'mgr123', 'Sales');
-INSERT INTO Manazer (ID)
-VALUES (2);
+BEGIN
+    AddManager('Manager One', TO_DATE('1980-02-01', 'YYYY-MM-DD'), 'manager.one@example.com', 'mgr123', 'Sales');
+EXCEPTION
+    WHEN OTHERS THEN
+        DBMS_OUTPUT.PUT_LINE('Failed to add Manager One: ' || SQLERRM);
+end;
+
 INSERT INTO Udalost (DATUM_CAS, Popis, Misto, Nazev, Doba_trvani, Dostupnost, ID_Tvurce)
-VALUES (TIMESTAMP '2023-02-01 11:00:00', 'Sales Review', 'Conference Room A', 'Quarterly Sales', 2, 'Nedostupny', 2);
+VALUES (TIMESTAMP '2023-01-01 11:00:00', 'Sales Review', 'Conference Room A', 'Quarterly Sales', 2, 'Nedostupny', 2);
 
 --add event to the manager's calendar
 INSERT INTO Události_v_kalendářích (Udalost_ID, Kalendar_ID)
 VALUES (2, 2);
 
 -- Manager 2 and their event
-INSERT INTO Uzivatel (Jmeno, Datum_narozeni, Email, Heslo, Oddeleni)
-VALUES ('Manager Two', TO_DATE('1981-03-02', 'YYYY-MM-DD'), 'manager.two@example.com', 'mgr456', 'Marketing');
-INSERT INTO Manazer (ID)
-VALUES (3);
+BEGIN
+    AddManager('Manager Two', TO_DATE('1981-03-02', 'YYYY-MM-DD'), 'manager.two@example.com', 'mgr456', 'Marketing');
+EXCEPTION
+    WHEN OTHERS THEN
+        DBMS_OUTPUT.PUT_LINE('Failed to add Manager Two: ' || SQLERRM);
+END;
 INSERT INTO Udalost (DATUM_CAS, Popis, Misto, Nazev, Doba_trvani, Dostupnost, ID_Tvurce)
 VALUES (TIMESTAMP '2023-03-02 12:00:00', 'Marketing Brainstorm', 'Conference Room B', 'Campaign Ideas', 1, 'Nedostupny', 3);
 
@@ -573,10 +687,13 @@ INSERT INTO Události_v_kalendářích (Udalost_ID, Kalendar_ID)
 VALUES (3, 3);
 
 -- Manager 3 and their event
-INSERT INTO Uzivatel (Jmeno, Datum_narozeni, Email, Heslo, Oddeleni)
-VALUES ('Manager Three', TO_DATE('1982-04-03', 'YYYY-MM-DD'), 'manager.three@example.com', 'mgr789', 'Finance');
-INSERT INTO Manazer (ID)
-VALUES (4);
+BEGIN
+    AddManager('Manager Three', TO_DATE('1982-04-03', 'YYYY-MM-DD'), 'manager.three@example.com', 'mgr789', 'Finance');
+EXCEPTION
+    WHEN OTHERS THEN
+        DBMS_OUTPUT.PUT_LINE('Failed to add Manager Three: ' || SQLERRM);
+END;
+
 INSERT INTO Udalost (DATUM_CAS, Popis, Misto, Nazev, Doba_trvani, Dostupnost, ID_Tvurce)
 VALUES (TIMESTAMP '2023-04-03 13:00:00', 'Budget Planning', 'Conference Room C', 'Fiscal Year Budget', 3, 'Nedostupny', 4);
 
@@ -585,18 +702,20 @@ INSERT INTO Události_v_kalendářích (Udalost_ID, Kalendar_ID)
 VALUES (4, 4);
 
 -- Secretary 1 for Manager 1
-INSERT INTO Uzivatel (Jmeno, Datum_narozeni, Email, Heslo, Oddeleni)
-VALUES ('Secretary One', TO_DATE('1990-05-05', 'YYYY-MM-DD'), 'sec.one@example.com', 'sec123', 'Sales');
--- Assuming the next ID is 5
-INSERT INTO Sekretarka_manazera (ID, Manazer_ID)
-VALUES (5, 2);
+BEGIN
+    AddManagerSecretary('Secretary One', TO_DATE('1990-05-05', 'YYYY-MM-DD'), 'sec.one@example.com', 'sec123', 'Sales',2);
+EXCEPTION
+    WHEN OTHERS THEN
+        DBMS_OUTPUT.PUT_LINE('Failed to add Secretary One for Manager One: ' || SQLERRM);
+end;
 
 -- Secretary 2 for Manager 1
-INSERT INTO Uzivatel (Jmeno, Datum_narozeni, Email, Heslo, Oddeleni)
-VALUES ('Secretary Two', TO_DATE('1991-06-06', 'YYYY-MM-DD'), 'sec.two@example.com', 'sec456', 'Sales');
--- Assuming the next ID is 6
-INSERT INTO Sekretarka_manazera (ID, Manazer_ID)
-VALUES (6, 2);
+BEGIN
+    AddManagerSecretary('Secretary Two', TO_DATE('1991-06-06', 'YYYY-MM-DD'), 'sec.two@example.com', 'sec456', 'Sales',2);
+EXCEPTION
+    WHEN OTHERS THEN
+        DBMS_OUTPUT.PUT_LINE('Failed to add Secretary Two for Manager One: ' || SQLERRM);
+end;
 
 -- Secretary 3 for Manager 1
 INSERT INTO Uzivatel (Jmeno, Datum_narozeni, Email, Heslo, Oddeleni)
@@ -607,46 +726,49 @@ VALUES (7, 2);
 
 
 -- Secretary 1 for Manager 2
-INSERT INTO Uzivatel (Jmeno, Datum_narozeni, Email, Heslo, Oddeleni)
-VALUES ('Secretary One M2', TO_DATE('1990-08-08', 'YYYY-MM-DD'), 'secm2.one@example.com', 'secm2123', 'Marketing');
--- Assuming the next ID is 8
-INSERT INTO Sekretarka_manazera (ID, Manazer_ID)
-VALUES (8, 3);
+BEGIN
+    AddManagerSecretary('Secretary One M2', TO_DATE('1990-08-08', 'YYYY-MM-DD'), 'secm2.one@example.com', 'secm2123', 'Marketing',3);
+EXCEPTION
+    WHEN OTHERS THEN
+        DBMS_OUTPUT.PUT_LINE('Failed to add Secretary One for Manager Two: ' || SQLERRM);
+end;
 
 -- Secretary 2 for Manager 2
-INSERT INTO Uzivatel (Jmeno, Datum_narozeni, Email, Heslo, Oddeleni)
-VALUES ('Secretary Two M2', TO_DATE('1991-09-09', 'YYYY-MM-DD'), 'secm2.two@example.com', 'secm2456', 'Marketing');
--- Assuming the next ID is 9
-INSERT INTO Sekretarka_manazera (ID, Manazer_ID)
-VALUES (9, 3);
+BEGIN
+    AddManagerSecretary('Secretary Two M2', TO_DATE('1991-09-09', 'YYYY-MM-DD'), 'secm2.two@example.com', 'secm2456', 'Marketing',3);
+EXCEPTION
+    WHEN OTHERS THEN
+        DBMS_OUTPUT.PUT_LINE('Failed to add Secretary Two for Manager Two: ' || SQLERRM);
+end;
 
 -- Secretary 3 for Manager 2
-INSERT INTO Uzivatel (Jmeno, Datum_narozeni, Email, Heslo, Oddeleni)
-VALUES ('Secretary Three M2', TO_DATE('1992-10-10', 'YYYY-MM-DD'), 'secm2.three@example.com', 'secm2789', 'Marketing');
--- Assuming the next ID is 10
-INSERT INTO Sekretarka_manazera (ID, Manazer_ID)
-VALUES (10, 3);
+BEGIN
+    AddManagerSecretary('Secretary Three M2', TO_DATE('1992-10-10', 'YYYY-MM-DD'), 'secm2.three@example.com', 'secm2789', 'Marketing',3);
+end;
 
 -- Secretary 1 for Manager 3
-INSERT INTO Uzivatel (Jmeno, Datum_narozeni, Email, Heslo, Oddeleni)
-VALUES ('Secretary One M3', TO_DATE('1990-11-11', 'YYYY-MM-DD'), 'secm3.one@example.com', 'secm3123', 'Finance');
--- Assuming the next ID is 11
-INSERT INTO Sekretarka_manazera (ID, Manazer_ID)
-VALUES (11, 4);
+BEGIN
+    AddManagerSecretary('Secretary One M3', TO_DATE('1990-11-11', 'YYYY-MM-DD'), 'secm3.one@example.com', 'secm3123', 'Finance',4);
+EXCEPTION
+    WHEN OTHERS THEN
+        DBMS_OUTPUT.PUT_LINE('Failed to add Secretary One for Manager Three: ' || SQLERRM);
+end;
 
 -- Secretary 2 for Manager 3
-INSERT INTO Uzivatel (Jmeno, Datum_narozeni, Email, Heslo, Oddeleni)
-VALUES ('Secretary Two M3', TO_DATE('1991-12-12', 'YYYY-MM-DD'), 'secm3.two@example.com', 'secm3456', 'Finance');
--- Assuming the next ID is 12
-INSERT INTO Sekretarka_manazera (ID, Manazer_ID)
-VALUES (12, 4);
+BEGIN
+    AddManagerSecretary('Secretary Two M3', TO_DATE('1991-12-12', 'YYYY-MM-DD'), 'secm3.two@example.com', 'secm3456', 'Finance',4);
+EXCEPTION
+    WHEN OTHERS THEN
+        DBMS_OUTPUT.PUT_LINE('Failed to add Secretary Two for Manager Three: ' || SQLERRM);
+end;
 
 -- Secretary 3 for Manager 3
-INSERT INTO Uzivatel (Jmeno, Datum_narozeni, Email, Heslo, Oddeleni)
-VALUES ('Secretary Three M3', TO_DATE('1992-01-13', 'YYYY-MM-DD'), 'secm3.three@example.com', 'secm3789', 'Finance');
--- Assuming the next ID is 13
-INSERT INTO Sekretarka_manazera (ID, Manazer_ID)
-VALUES (13, 4);
+BEGIN
+    AddManagerSecretary('Secretary Three M3', TO_DATE('1992-01-13', 'YYYY-MM-DD'), 'secm3.three@example.com', 'secm3789', 'Finance',4);
+EXCEPTION
+    WHEN OTHERS THEN
+        DBMS_OUTPUT.PUT_LINE('Failed to add Secretary Three for Manager Three: ' || SQLERRM);
+end;
 
 -- Events for first Secretaries of Manager 1
 INSERT INTO Udalost (DATUM_CAS, Popis, Misto, Nazev, Doba_trvani, Dostupnost, ID_Tvurce)
@@ -720,11 +842,12 @@ INSERT INTO Události_v_kalendářích (Udalost_ID, Kalendar_ID)
 VALUES (13, 4);
 
 -- Secretary 1 for the Director
-INSERT INTO Uzivatel (Jmeno, Datum_narozeni, Email, Heslo, Oddeleni)
-VALUES ('Director Secretary 1', TO_DATE('1991-08-08', 'YYYY-MM-DD'), 'dsec1@example.com', 'dsec123', 'CEO');
--- Assuming the next ID is 8
-INSERT INTO Sekretarka_reditel (ID, Reditel_ID)
-VALUES (14, 1);
+BEGIN
+    AddDirectorSecretary('Director Secretary 1', TO_DATE('1991-08-08', 'YYYY-MM-DD'), 'dsec1@example.com', 'dsec123', 'CEO',1);
+EXCEPTION
+    WHEN OTHERS THEN
+        DBMS_OUTPUT.PUT_LINE('Failed to add Director Secretary 1: ' || SQLERRM);
+end;
 
 -- Event for Director's Secretary 1
 INSERT INTO Udalost (DATUM_CAS, Popis, Misto, Nazev, Doba_trvani, Dostupnost, ID_Tvurce)
@@ -735,11 +858,12 @@ INSERT INTO Události_v_kalendářích (Udalost_ID, Kalendar_ID)
 VALUES (14, 1);
 
 -- Secretary 2 for the Director
-INSERT INTO Uzivatel (ID ,Jmeno, Datum_narozeni, Email, Heslo, Oddeleni)
-VALUES (NULL, 'Director Secretary 2', TO_DATE('1992-09-09', 'YYYY-MM-DD'), 'dsec2@example.com', 'dsec456', 'CEO');
--- Assuming the next ID is 9
-INSERT INTO Sekretarka_reditel (ID, Reditel_ID)
-VALUES (uzivatel_seq.currval, 1);
+BEGIN
+    AddDirectorSecretary('Director Secretary 2', TO_DATE('1992-09-09', 'YYYY-MM-DD'), 'dsec2@example.com', 'dsec456', 'CEO',1);
+EXCEPTION
+    WHEN OTHERS THEN
+        DBMS_OUTPUT.PUT_LINE('Failed to add Director Secretary 2: ' || SQLERRM);
+end;
 
 -- Event for Director's Secretary 2
 INSERT INTO Udalost (DATUM_CAS, Popis, Misto, Nazev, Doba_trvani, Dostupnost, ID_Tvurce)
@@ -750,11 +874,12 @@ INSERT INTO Události_v_kalendářích (Udalost_ID, Kalendar_ID)
 VALUES (udalost_seq.currval, 1);
 
 -- Secretary 3 for the Director
-INSERT INTO Uzivatel (Jmeno, Datum_narozeni, Email, Heslo, Oddeleni)
-VALUES ('Director Secretary 3', TO_DATE('1993-10-10', 'YYYY-MM-DD'), 'dsec3@example.com', 'dsec789', 'CEO');
--- Assuming the next ID is 10
-INSERT INTO Sekretarka_reditel (ID, Reditel_ID)
-VALUES (uzivatel_seq.currval, 1);
+BEGIN
+    AddDirectorSecretary('Director Secretary 3', TO_DATE('1993-10-10', 'YYYY-MM-DD'), 'dsec3@example.com', 'dsec789', 'CEO',1);
+EXCEPTION
+    WHEN OTHERS THEN
+        DBMS_OUTPUT.PUT_LINE('Failed to add Director Secretary 3: ' || SQLERRM);
+end;
 
 -- Event for Director's Secretary 3
 INSERT INTO Udalost (DATUM_CAS, Popis, Misto, Nazev, Doba_trvani, Dostupnost, ID_Tvurce)
@@ -767,7 +892,7 @@ VALUES (udalost_seq.currval, 1);
 -- Event from Director to all Managers and himself
 -- Director creates a Teambuilding event for himself
 INSERT INTO Udalost (DATUM_CAS, Popis, Misto, Nazev, Doba_trvani, Dostupnost, ID_Tvurce)
-VALUES (TIMESTAMP '2023-12-01 09:00:00', 'Annual Teambuilding', 'Outdoor Retreat', 'Teambuilding', 8, 'Dostupny', 1);
+VALUES (TIMESTAMP '2023-12-01 09:00:00', 'Annual Teambuilding', 'Outdoor Retreat', 'Teambuilding', 8, 'Nedostupny', 1);
 --add event to the director's calendar
 INSERT INTO Události_v_kalendářích (Udalost_ID, Kalendar_ID)
 VALUES (udalost_seq.currval, 1);
@@ -783,6 +908,8 @@ VALUES (udalost_seq.currval, 3);
 -- Director creates a Teambuilding event for Manager 3
 INSERT INTO Události_v_kalendářích (Udalost_ID, Kalendar_ID)
 VALUES (udalost_seq.currval, 4);
+
+-------------------------------------------- Queries ---------------------------------------------------
 
 -- Query 1: Joining two tables to find all events created by a specific user
 -- This query shows how to link the Uzivatel and Udalost tables to find all events created by a specific user.
@@ -836,9 +963,12 @@ WHERE E.ID IN (SELECT UK.Udalost_ID
                JOIN Kalendar K ON UK.Kalendar_ID = K.ID
                JOIN Uzivatel U ON K.ID_Vlastnika = U.ID
                WHERE U.Oddeleni = 'Marketing');
-
 SELECT * FROM table(DBMS_XPLAN.DISPLAY);
 
+EXPLAIN PLAN FOR
+SELECT * FROM Uzivatel WHERE Email = 'sec.one@example.com';
+
+SELECT * FROM TABLE(DBMS_XPLAN.DISPLAY);
 
 CREATE INDEX idx_user_email ON Uzivatel(Email);
 EXPLAIN PLAN FOR
@@ -846,11 +976,53 @@ SELECT * FROM Uzivatel WHERE Email = 'sec.one@example.com';
 
 SELECT * FROM TABLE(DBMS_XPLAN.DISPLAY);
 
+EXPLAIN PLAN FOR
+WITH ManagerData AS (
+  -- Select all users and check if they are listed as managers in the Manazer table
+  SELECT U.ID, U.Jmeno, U.Oddeleni,
+         CASE WHEN M.ID IS NOT NULL THEN 'Yes' ELSE 'No' END AS IsManager
+  FROM Uzivatel U
+  LEFT JOIN Manazer M ON U.ID = M.ID -- A left join to Manazer to see if the user is a manager
+)
+SELECT Jmeno, IsManager, Oddeleni
+FROM ManagerData;
+
+SELECT * FROM TABLE(DBMS_XPLAN.DISPLAY);
+
+
+CREATE INDEX idx_user_department ON Uzivatel(Oddeleni);
+CREATE INDEX idx_user_name ON Uzivatel(Jmeno);
+EXPLAIN PLAN FOR
+WITH ManagerData AS (
+  -- Select all users and check if they are listed as managers in the Manazer table
+  SELECT U.ID, U.Jmeno, U.Oddeleni,
+         CASE WHEN M.ID IS NOT NULL THEN 'Yes' ELSE 'No' END AS IsManager
+  FROM Uzivatel U
+  LEFT JOIN Manazer M ON U.ID = M.ID -- A left join to Manazer to see if the user is a manager
+)
+SELECT Jmeno, IsManager, Oddeleni
+FROM ManagerData;
+
+SELECT * FROM TABLE(DBMS_XPLAN.DISPLAY);
+
+SELECT * FROM TABLE(GetAvailableManagers(TO_TIMESTAMP('2023-01-01 08:00:00', 'YYYY-MM-DD HH24:MI:SS'), TO_TIMESTAMP('2023-01-01 17:00:00', 'YYYY-MM-DD HH24:MI:SS')));
+
+
+ ------------------------------------------MATERIALIZED VIEWS--------------------------------------------
+-- View to display events of director for managers
+CREATE MATERIALIZED VIEW DirectorEventsForManagers AS
+SELECT
+    e.ID AS EventID,
+    e.DATUM_CAS AS EventDateTime
+FROM
+    Udalost e
+    INNER JOIN Události_v_kalendářích uk ON e.ID = uk.Udalost_ID
+    INNER JOIN Kalendar k ON uk.Kalendar_ID = k.ID
+    INNER JOIN Uzivatel uz ON k.ID_Vlastnika = uz.ID
+WHERE
+    uz.Oddeleni = 'CEO';
 
 CREATE MATERIALIZED VIEW Log_View
-REFRESH COMPLETE
-START WITH SYSDATE
-NEXT SYSDATE + 1
 AS
 SELECT
     u.Jmeno AS CreatorName,
@@ -862,17 +1034,16 @@ FROM
 JOIN
     Uzivatel u ON e.ID_Tvurce = u.ID;
 
-
-
-WITH ManagerData AS (
-  -- Select all users and check if they are listed as managers in the Manazer table
-  SELECT U.ID, U.Jmeno, U.Oddeleni,
-         CASE WHEN M.ID IS NOT NULL THEN 'Yes' ELSE 'No' END AS IsManager
-  FROM Uzivatel U
-  LEFT JOIN Manazer M ON U.ID = M.ID -- A left join to Manazer to see if the user is a manager
-)
-SELECT Jmeno, IsManager, Oddeleni
-FROM ManagerData;
-
-
-
+--------------------------------------- GRANT PRIVILEGES ----------------------------------------------
+select * from USER_TAB_PRIVS;
+GRANT ALL ON Uzivatel TO XTRIFO00;
+GRANT ALL ON Udalost TO XTRIFO00;
+GRANT ALL ON Události_v_kalendářích TO XTRIFO00;
+GRANT ALL ON Kalendar TO XTRIFO00;
+GRANT ALL ON Zprava TO XTRIFO00;
+GRANT ALL ON Manazer TO XTRIFO00;
+GRANT ALL ON Sekretarka_manazera TO XTRIFO00;
+GRANT ALL ON Reditel TO XTRIFO00;
+GRANT ALL ON Sekretarka_reditel TO XTRIFO00;
+GRANT ALL ON DirectorEventsForManagers TO XTRIFO00;
+GRANT ALL ON Log_View TO XTRIFO00;

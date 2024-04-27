@@ -9,5 +9,13 @@
       <jdbc-url>jdbc:oracle:thin:@//gort.fit.vutbr.cz:1521/orclpdb</jdbc-url>
       <working-dir>$ProjectFileDir$</working-dir>
     </data-source>
+    <data-source source="LOCAL" name="@gort.fit.vutbr.cz [2]" uuid="1ce3faab-b8b3-49b3-acf4-9877d8db503a">
+      <driver-ref>oracle.19</driver-ref>
+      <synchronize>true</synchronize>
+      <auto-commit>false</auto-commit>
+      <jdbc-driver>oracle.jdbc.OracleDriver</jdbc-driver>
+      <jdbc-url>jdbc:oracle:thin:@//gort.fit.vutbr.cz:1521/orclpdb</jdbc-url>
+      <working-dir>$ProjectFileDir$</working-dir>
+    </data-source>
   </component>
 </project>
