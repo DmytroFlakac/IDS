@@ -1,6 +1,7 @@
-\documentclass[11pt,a4paper]
+\documentclass[11pt,a4paper]{article}
 \usepackage[utf8]{inputenc}
 \usepackage[czech]{babel}
+\usepackage[utf8]{inputenc}
 \usepackage{times}
 \usepackage{graphicx}
 \usepackage[a4paper,top=30mm,left=20mm,textwidth=17cm,textheight=24cm]{geometry}
@@ -9,22 +10,23 @@
 \usepackage{pdflscape}
 \usepackage{indentfirst}
 \usepackage{verbatim}
+\usepackage{graphicx}
+\usepackage{verbatim}
 \usepackage{fancyvrb}
 \usepackage{svg}
 \usepackage{biblatex}
-\usepackage{u8tex}
+\usepackage{hyperref}
 \usepackage{tabto}
 \usepackage{rotating}
 \usepackage{amsmath}
-\usepackage[utf8]
-\usepackage{multicol}
-\usepackage[T1]{fontenc}\setlength\columnsep{2em}
+\usepackage[utf8]{inputenc}
+\usepackage{multicol}\setlength\columnsep{2em}
 \setlength\columnsep{2em}
 
 \begin{document}
     \begin{titlepage}
         \begin{center}
-            \includegraphics[width=1\linewidth]{fit_logo} \\
+            \includegraphics[width=1\linewidth]{fit_logo.png} \\
             \vspace{\stretch{0.382}}
             \Huge{Dokumentace projektu IDS} \\
             \Large{Název projektu: Manažerský kalendář } \\
@@ -60,9 +62,8 @@
     \textbf{Kalendář:} Každý kalendář je spojen s konkrétním uživatelem a oddělením. Umožňuje záznam plánovaných událostí.\\
     \textbf{Událost:} Entita události obsahuje všechny důležité informace o plánovaných akcích a schůzkách v kalendářích.\\
     \textbf{Zpráva:} Systém generuje zprávu jako zprávy o nově plánovaných akcích nebo o změnách v kalendáři, vyrobených osobami, které nejsou vlastníky.\\
-    Pozn.: V kontextu tohoto systému předpokládáme, že ředitel a manažer mohou mít několik sekretářek, které s nimi budou propojeny prostřednictvím ID oddělení.
+    \textbf{Pozn.:} V kontextu tohoto systému předpokládáme, že ředitel a manažer mohou mít několik sekretářek, které s nimi budou propojeny prostřednictvím oddělení.
 
-    Placeholder for ER diagram figure
     \begin{figure}[h]
     \centering
     \includesvg[width=0.85\textwidth]{ER.svg}
@@ -83,12 +84,40 @@
     \textbf{Generování notifikací}: Pokud událost vytvoří sekretářka, systém vygeneruje notifikace.\\
     Diagram také ukazuje, že některé případy užití ("zobrazení informací") jsou centrální pro zobrazení relevantních údajů a jsou podporovány dalšími akcemi.
 
-    Placeholder for Use Case diagram figure
+
     \begin{figure}[h]
     \centering
     \includesvg[width=0.85\textwidth]{Use_case.svg}
     \caption{Diagram případů užití}
     \end{figure}
     \newpage
+
+    \section{Databázové operace}
+Tato část dokumentuje klíčové operace použité při nastavení a údržbě databáze. Každá operace je pečlivě popsána s ohledem na její funkci a účel v systému.
+
+\subsection{DROP}
+Operace \texttt{DROP} se používají k odstranění existujících struktur v databázi, jako jsou tabulky, triggery a sekvence. Toto je nezbytné k zabránění konfliktům, pokud je potřeba tyto objekty znovu vytvořit. Například, \texttt{DROP TABLE} příkaz odstraní tabulku a všechna její data z databáze.
+
+\subsection{CREATE}
+\texttt{CREATE} příkazy se používají k definování nových struktur v databázi. Zahrnují vytváření tabulek, definování primárních klíčů, triggery, procedury a materializované pohledy. Tyto objekty jsou základem pro ukládání a manipulaci s daty v databázi.
+
+\subsection{INSERT}
+Příkazy \texttt{INSERT} slouží k vložení dat do tabulek. Tato data mohou být počáteční hodnoty potřebné pro funkčnost systému nebo testovací data použitá při vývoji.
+
+\subsection{TRIGGER}
+Triggery jsou speciální procedury spouštěné automaticky v reakci na určité události v databázi, jako je vložení nebo aktualizace záznamů. Triggery mohou být použity k udržení konzistence dat a automatickému provádění rutinních operací.
+
+\subsection{EXPLAIN PLAN}
+Příkaz \texttt{EXPLAIN PLAN} se používá k analýze a zobrazení plánu provádění dotazů. To pomáhá optimalizovat výkon dotazů tím, že odhaluje, jak databázový systém interpretuje a provádí specifické SQL příkazy.
+
+\subsection{PROCEDURE}
+Uložené procedury jsou skupiny předdefinovaných SQL příkazů, které lze vyvolat pro provedení databázových operací. Tyto procedury zjednodušují opakující se úkoly a zvyšují bezpečnost a efektivitu práce s databází.
+
+\subsection{PRIVILEGES}
+Přidělování oprávnění uživatelům nebo skupinám uživatelů je klíčové pro řízení přístupu k databázovým objektům. Oprávnění určují, co mohou uživatelé dělat, jako je čtení, úpravy, vkládání nebo mazání dat.
+
+\subsection{MATERIALIZED VIEW}
+Materializované pohledy jsou databázové objekty, které obsahují výsledky dotazů. Na rozdíl od standardních pohledů jsou data materializovaných pohledů uložena na disku, což umožňuje rychlejší přístup k datům na úkor vyšší nároky na úložiště.
+
 
 \end{document}
